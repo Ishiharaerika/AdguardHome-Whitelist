@@ -1,0 +1,64 @@
+name: Daily Domain List Processing
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Runs at 00:00 UTC every day
+  workflow_dispatch:      # Allows manual trigger
+
+jobs:
+  process-domains:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        
+      - name: Download source files
+        run: |
+          # Replace these URLs with actual source file URLs
+          wget https://raw.githubusercontent.com/v2fly/domain-list-community/refs/heads/release/cn.txt -O source1.txt
+          wget https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/refs/heads/master/rule/Clash/Tencent/Tencent.list -O source2.txt
+
+      - name: Process files
+        run: |
+          for i in {1..2}; do
+            # Process each source file
+            cat source$i.txt | \
+              grep -v '^#' | \
+              grep -v '@' | \
+              grep '\.' | \
+              grep -E '^(domain:|full:|regexp:|DOMAIN-SUFFIX,)' | \
+              while IFS= read -r line; do
+                if [[ $line == regexp:* ]]; then
+                  # Handle regexp patterns
+                  pattern=${line#regexp:}
+                  echo "/$pattern/"
+                else
+                  # Handle domain/full/DOMAIN-SUFFIX patterns
+                  case "$line" in
+                    domain:*)
+                      domain=${line#domain:}
+                      echo "||$domain^"
+                      ;;
+                    full:*)
+                      domain=${line#full:}
+                      echo "||$domain^"
+                      ;;
+                    DOMAIN-SUFFIX,*)
+                      domain=${line#DOMAIN-SUFFIX,}
+                      echo "||$domain^"
+                      ;;
+                  esac
+                fi
+            done > whitelist_$i.txt
+          done
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add whitelist_*.txt
+          git commit -m "Update whitelist files" || exit 0
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
